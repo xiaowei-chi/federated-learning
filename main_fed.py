@@ -13,9 +13,94 @@ import torch
 from utils.sampling import mnist_iid, mnist_noniid, cifar_iid
 from utils.options import args_parser
 from models.Update import LocalUpdate
-from models.Nets import MLP, CNNMnist, CNNCifar
+from models.Nets import MLP, CNNMnist, CNNCifar, GCNLinkPred, GATLinkPred, SAGELinkPred
 from models.Fed import FedAvg
 from models.test import test_img
+from data_preprocessing.data_loader import *
+from sklearn.metrics import mean_absolute_error, mean_squared_error, mean_absolute_percentage_error
+from training.fed_subgraph_lp_trainer import FedSubgraphLPTrainer
+
+def load_data(args, dataset_name):
+    if args.dataset not in ["ciao", "epinions"]:
+        raise Exception("no such dataset!")
+
+    args.pred_task = "link_prediction"
+
+    args.metric = "MAE"
+
+    if args.model == "gcn":
+        args.normalize_features = True
+        args.normalize_adjacency = True
+
+    (
+        train_data_num,
+        val_data_num,
+        test_data_num,
+        train_data_global,
+        val_data_global,
+        test_data_global,
+        data_local_num_dict,
+        train_data_local_dict,
+        val_data_local_dict,
+        test_data_local_dict,
+        feature_dim,
+    ) = load_partition_data(args, args.data_dir, args.num_users)
+
+    dataset = [
+        train_data_num,
+        val_data_num,
+        test_data_num,
+        train_data_global,
+        val_data_global,
+        test_data_global,
+        data_local_num_dict,
+        train_data_local_dict,
+        val_data_local_dict,
+        test_data_local_dict,
+        feature_dim,
+    ]
+
+    return dataset
+
+def test(model, test_data, device, val=True, metric=mean_absolute_error):
+    print("----------test--------")
+    model.eval()
+    model.to(device)
+    metric = metric
+    mae, rmse, mse = [], [], []
+
+    for batch in test_data:
+        batch.to(device)
+        with torch.no_grad():
+            train_z = model.encode(batch.x, batch.edge_train)
+            if val:
+                link_logits = model.decode(train_z, batch.edge_val)
+            else:
+                link_logits = model.decode(train_z, batch.edge_test)
+
+            if val:
+                link_labels = batch.label_val
+            else:
+                link_labels = batch.label_test
+            score = metric(link_labels.cpu(), link_logits.cpu())
+            mae.append(mean_absolute_error(link_labels.cpu(), link_logits.cpu()))
+            rmse.append(mean_squared_error(link_labels.cpu(), link_logits.cpu(), squared = False))
+            mse.append(mean_squared_error(link_labels.cpu(), link_logits.cpu()))
+    return score, model, mae, rmse, mse
+
+def create_model(args, model_name, feature_dim):
+    # print("create_model. model_name = %s" % (model_name))
+    if model_name == "gcn":
+        model = GCNLinkPred(feature_dim, args.hidden_size, args.node_embedding_dim)
+    elif model_name == "gat":
+        model = GATLinkPred(
+            feature_dim, args.hidden_size, args.node_embedding_dim, args.num_heads
+        )
+    elif model_name == "sage":
+        model = SAGELinkPred(feature_dim, args.hidden_size, args.node_embedding_dim)
+    else:
+        raise Exception("such model does not exist !")
+    return model
 
 
 if __name__ == '__main__':
@@ -23,57 +108,28 @@ if __name__ == '__main__':
     args = args_parser()
     args.device = torch.device('cuda:{}'.format(args.gpu) if torch.cuda.is_available() and args.gpu != -1 else 'cpu')
 
-    # load dataset and split users
-    if args.dataset == 'mnist':
-        trans_mnist = transforms.Compose([transforms.ToTensor(), transforms.Normalize((0.1307,), (0.3081,))])
-        dataset_train = datasets.MNIST('../data/mnist/', train=True, download=True, transform=trans_mnist)
-        dataset_test = datasets.MNIST('../data/mnist/', train=False, download=True, transform=trans_mnist)
-        # sample users
-        if args.iid:
-            dict_users = mnist_iid(dataset_train, args.num_users)
-        else:
-            dict_users = mnist_noniid(dataset_train, args.num_users)
-    elif args.dataset == 'cifar':
-        trans_cifar = transforms.Compose([transforms.ToTensor(), transforms.Normalize((0.5, 0.5, 0.5), (0.5, 0.5, 0.5))])
-        dataset_train = datasets.CIFAR10('../data/cifar', train=True, download=True, transform=trans_cifar)
-        dataset_test = datasets.CIFAR10('../data/cifar', train=False, download=True, transform=trans_cifar)
-        if args.iid:
-            dict_users = cifar_iid(dataset_train, args.num_users)
-        else:
-            exit('Error: only consider IID setting in CIFAR10')
-    else:
-        exit('Error: unrecognized dataset')
-    img_size = dataset_train[0][0].shape
+    # # load dataset and split users
+    dataset = load_data(args, args.dataset)
+    [
+        train_data_num,
+        val_data_num,
+        test_data_num,
+        train_data_global,
+        val_data_global,
+        test_data_global,
+        data_local_num_dict,
+        train_data_local_dict,
+        val_data_local_dict,
+        test_data_local_dict,
+        feature_dim,
+    ] = dataset
 
-    # build model
-    if args.model == 'cnn' and args.dataset == 'cifar':
-        net_glob = CNNCifar(args=args).to(args.device)
-    elif args.model == 'cnn' and args.dataset == 'mnist':
-        net_glob = CNNMnist(args=args).to(args.device)
-    elif args.model == 'mlp':
-        len_in = 1
-        for x in img_size:
-            len_in *= x
-        net_glob = MLP(dim_in=len_in, dim_hidden=200, dim_out=args.num_classes).to(args.device)
-    else:
-        exit('Error: unrecognized model')
+    net_glob = create_model(args, args.model, feature_dim).to(args.device)
     print(net_glob)
-    net_glob.train()
-
     # copy weights
-    w_glob = net_glob.state_dict()
+    # w_glob = net_glob.state_dict()
 
     # training
-    loss_train = []
-    cv_loss, cv_acc = [], []
-    val_loss_pre, counter = 0, 0
-    net_best = None
-    best_loss = None
-    val_acc_list, net_list = [], []
-
-    if args.all_clients: 
-        print("Aggregation over all clients")
-        w_locals = [w_glob for i in range(args.num_users)]
     for iter in range(args.epochs):
         loss_locals = []
         if not args.all_clients:
@@ -81,34 +137,57 @@ if __name__ == '__main__':
         m = max(int(args.frac * args.num_users), 1)
         idxs_users = np.random.choice(range(args.num_users), m, replace=False)
         for idx in idxs_users:
-            local = LocalUpdate(args=args, dataset=dataset_train, idxs=dict_users[idx])
-            w, loss = local.train(net=copy.deepcopy(net_glob).to(args.device))
-            if args.all_clients:
-                w_locals[idx] = copy.deepcopy(w)
+            print("--------"+ str(idx) + "--------")
+            if args.metric == "MAE":
+                metric_fn = mean_absolute_error
+
+            net_glob.to(args.device)
+            net_glob.train()
+            if args.client_optimizer == "sgd":
+                optimizer = torch.optim.SGD(
+                    filter(lambda p: p.requires_grad, net_glob.parameters()),
+                    lr=args.lr,
+                    weight_decay=args.wd,
+                )
             else:
-                w_locals.append(copy.deepcopy(w))
-            loss_locals.append(copy.deepcopy(loss))
-        # update global weights
-        w_glob = FedAvg(w_locals)
+                optimizer = torch.optim.Adam(
+                    filter(lambda p: p.requires_grad, net_glob.parameters()),
+                    lr=args.lr,
+                    weight_decay=args.wd,
+                )
 
-        # copy weight to net_glob
-        net_glob.load_state_dict(w_glob)
+            max_test_score = 10
+            best_model_params = {}
+            train_data = train_data_local_dict[idx]
+            for epoch in range(args.epochs):
 
-        # print loss
-        loss_avg = sum(loss_locals) / len(loss_locals)
-        print('Round {:3d}, Average loss {:.3f}'.format(iter, loss_avg))
-        loss_train.append(loss_avg)
+                for idx_batch, batch in enumerate(train_data):
+                    print(idx_batch)
+                    print(batch)
+                    batch.to(args.device)
+                    optimizer.zero_grad()
 
-    # plot loss curve
-    plt.figure()
-    plt.plot(range(len(loss_train)), loss_train)
-    plt.ylabel('train_loss')
-    plt.savefig('./save/fed_{}_{}_{}_C{}_iid{}.png'.format(args.dataset, args.model, args.epochs, args.frac, args.iid))
+                    z = net_glob.encode(batch.x, batch.edge_train)
+                    link_logits = net_glob.decode(z, batch.edge_train)
+                    link_labels = batch.label_train
+                    loss = F.mse_loss(link_logits, link_labels)
+                    loss.backward()
+                    optimizer.step()
 
-    # testing
-    net_glob.eval()
-    acc_train, loss_train = test_img(net_glob, dataset_train, args)
-    acc_test, loss_test = test_img(net_glob, dataset_test, args)
-    print("Training accuracy: {:.2f}".format(acc_train))
-    print("Testing accuracy: {:.2f}".format(acc_test))
+                if train_data is not None:
+                    test_score, _ , _, _, _= test(
+                        net_glob, train_data, args.device, val=True, metric=metric_fn
+                    )
+                    print(
+                        "Epoch = {}, Iter = {}/{}: Test score = {}".format(
+                            epoch, idx_batch + 1, len(train_data), test_score
+                        )
+                    )
+                    if test_score < max_test_score:
+                        max_test_score = test_score
+                        best_model_params = {
+                            k: v.cpu() for k, v in net_glob.state_dict().items()
+                        }
+                    print("Current best = {}".format(max_test_score))
 
+    

@@ -61,3 +61,84 @@ class CNNCifar(nn.Module):
         x = F.relu(self.fc2(x))
         x = self.fc3(x)
         return x
+
+
+
+
+
+
+
+
+
+import torch
+from torch_geometric.nn import GCNConv
+from torch_geometric.nn import SAGEConv
+from torch_geometric.nn import GATConv
+
+
+class GCNLinkPred(torch.nn.Module):
+    def __init__(self, in_channels, hidden_dim, out_channels):
+        super(GCNLinkPred, self).__init__()
+        self.conv1 = GCNConv(in_channels, hidden_dim)
+        self.conv2 = GCNConv(hidden_dim, out_channels)
+
+    def encode(self, x, edge_index):
+        x = self.conv1(x, edge_index)
+        x = x.relu()
+        return self.conv2(x, edge_index)
+
+    def decode(self, z, pos_edge_index):
+        edge_index = pos_edge_index
+        return (z[edge_index[0]] * z[edge_index[1]]).sum(dim=-1)
+
+    def decode_all(self, z):
+        prob_adj = z @ z.t()
+        return (prob_adj > 0).nonzero(as_tuple=False).t()
+
+
+class GATLinkPred(torch.nn.Module):
+    def __init__(self, in_channels, hidden_dim, out_channels, heads=2):
+        super(GATLinkPred, self).__init__()
+        self.conv1 = GATConv(in_channels, hidden_dim, heads=heads)
+        self.conv2 = GATConv(hidden_dim * heads, out_channels, heads=heads)
+
+    def encode(self, x, edge_index):
+        x = self.conv1(x, edge_index)
+        x = x.relu()
+        x = F.dropout(x, training=self.training)
+
+        return self.conv2(x, edge_index)
+
+    def decode(self, z, pos_edge_index):
+        edge_index = pos_edge_index
+        return (z[edge_index[0]] * z[edge_index[1]]).sum(dim=-1)
+
+    def decode_all(self, z):
+        prob_adj = z @ z.t()
+        return (prob_adj > 0).nonzero(as_tuple=False).t()
+
+
+
+class SAGELinkPred(torch.nn.Module):
+    def __init__(
+        self,
+        in_channels,
+        hidden_dim,
+        out_channels,
+    ):
+        super(SAGELinkPred, self).__init__()
+        self.conv1 = SAGEConv(in_channels, hidden_dim)
+        self.conv2 = SAGEConv(hidden_dim, out_channels)
+
+    def encode(self, x, edge_index):
+        x = self.conv1(x, edge_index)
+        x = x.relu()
+        return self.conv2(x, edge_index)
+
+    def decode(self, z, pos_edge_index):
+        edge_index = pos_edge_index
+        return (z[edge_index[0]] * z[edge_index[1]]).sum(dim=-1)
+
+    def decode_all(self, z):
+        prob_adj = z @ z.t()
+        return (prob_adj > 0).nonzero(as_tuple=False).t()
