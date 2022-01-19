@@ -2,23 +2,23 @@
 # -*- coding: utf-8 -*-
 # Python version: 3.6
 
+from training.fed_subgraph_lp_trainer import FedSubgraphLPTrainer
+from sklearn.metrics import mean_absolute_error, mean_squared_error, mean_absolute_percentage_error
+from data_preprocessing.data_loader import *
+from models.test import test_img
+from models.Fed import FedAvg
+from models.Nets import MLP, CNNMnist, CNNCifar, GCNLinkPred, GATLinkPred, SAGELinkPred
+from models.Update import LocalUpdate
+from utils.options import args_parser
+from utils.sampling import mnist_iid, mnist_noniid, cifar_iid
+import torch
+from torchvision import datasets, transforms
+import numpy as np
+import copy
+import matplotlib.pyplot as plt
 import matplotlib
 matplotlib.use('Agg')
-import matplotlib.pyplot as plt
-import copy
-import numpy as np
-from torchvision import datasets, transforms
-import torch
 
-from utils.sampling import mnist_iid, mnist_noniid, cifar_iid
-from utils.options import args_parser
-from models.Update import LocalUpdate
-from models.Nets import MLP, CNNMnist, CNNCifar, GCNLinkPred, GATLinkPred, SAGELinkPred
-from models.Fed import FedAvg
-from models.test import test_img
-from data_preprocessing.data_loader import *
-from sklearn.metrics import mean_absolute_error, mean_squared_error, mean_absolute_percentage_error
-from training.fed_subgraph_lp_trainer import FedSubgraphLPTrainer
 
 def load_data(args, dataset_name):
     if args.dataset not in ["ciao", "epinions"]:
@@ -62,6 +62,7 @@ def load_data(args, dataset_name):
 
     return dataset
 
+
 def test(model, test_data, device, val=True, metric=mean_absolute_error):
     print("----------test--------")
     model.eval()
@@ -83,21 +84,27 @@ def test(model, test_data, device, val=True, metric=mean_absolute_error):
             else:
                 link_labels = batch.label_test
             score = metric(link_labels.cpu(), link_logits.cpu())
-            mae.append(mean_absolute_error(link_labels.cpu(), link_logits.cpu()))
-            rmse.append(mean_squared_error(link_labels.cpu(), link_logits.cpu(), squared = False))
-            mse.append(mean_squared_error(link_labels.cpu(), link_logits.cpu()))
+            mae.append(mean_absolute_error(
+                link_labels.cpu(), link_logits.cpu()))
+            rmse.append(mean_squared_error(link_labels.cpu(),
+                                           link_logits.cpu(), squared=False))
+            mse.append(mean_squared_error(
+                link_labels.cpu(), link_logits.cpu()))
     return score, model, mae, rmse, mse
+
 
 def create_model(args, model_name, feature_dim):
     # print("create_model. model_name = %s" % (model_name))
     if model_name == "gcn":
-        model = GCNLinkPred(feature_dim, args.hidden_size, args.node_embedding_dim)
+        model = GCNLinkPred(feature_dim, args.hidden_size,
+                            args.node_embedding_dim)
     elif model_name == "gat":
         model = GATLinkPred(
             feature_dim, args.hidden_size, args.node_embedding_dim, args.num_heads
         )
     elif model_name == "sage":
-        model = SAGELinkPred(feature_dim, args.hidden_size, args.node_embedding_dim)
+        model = SAGELinkPred(feature_dim, args.hidden_size,
+                             args.node_embedding_dim)
     else:
         raise Exception("such model does not exist !")
     return model
@@ -106,7 +113,8 @@ def create_model(args, model_name, feature_dim):
 if __name__ == '__main__':
     # parse args
     args = args_parser()
-    args.device = torch.device('cuda:{}'.format(args.gpu) if torch.cuda.is_available() and args.gpu != -1 else 'cpu')
+    args.device = torch.device('cuda:{}'.format(
+        args.gpu) if torch.cuda.is_available() and args.gpu != -1 else 'cpu')
 
     # # load dataset and split users
     dataset = load_data(args, args.dataset)
@@ -137,7 +145,7 @@ if __name__ == '__main__':
         m = max(int(args.frac * args.num_users), 1)
         idxs_users = np.random.choice(range(args.num_users), m, replace=False)
         for idx in idxs_users:
-            print("--------"+ str(idx) + "--------")
+            print("--------" + str(idx) + "--------")
             if args.metric == "MAE":
                 metric_fn = mean_absolute_error
 
@@ -173,7 +181,7 @@ if __name__ == '__main__':
                 optimizer.step()
 
             if train_data is not None:
-                test_score, _ , _, _, _= test(
+                test_score, _, _, _, _ = test(
                     net_glob, train_data, args.device, val=True, metric=metric_fn
                 )
                 print(
@@ -187,5 +195,3 @@ if __name__ == '__main__':
                         k: v.cpu() for k, v in net_glob.state_dict().items()
                     }
                 print("Current best = {}".format(max_test_score))
-
-
