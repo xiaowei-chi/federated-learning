@@ -130,7 +130,7 @@ if __name__ == '__main__':
     # w_glob = net_glob.state_dict()
 
     # training
-    for iter in range(args.epochs):
+    for epoch in range(args.epochs):
         loss_locals = []
         if not args.all_clients:
             w_locals = []
@@ -159,35 +159,33 @@ if __name__ == '__main__':
             max_test_score = 10
             best_model_params = {}
             train_data = train_data_local_dict[idx]
-            for epoch in range(args.epochs):
+            for idx_batch, batch in enumerate(train_data):
+                print(idx_batch)
+                print(batch)
+                batch.to(args.device)
+                optimizer.zero_grad()
 
-                for idx_batch, batch in enumerate(train_data):
-                    print(idx_batch)
-                    print(batch)
-                    batch.to(args.device)
-                    optimizer.zero_grad()
+                z = net_glob.encode(batch.x, batch.edge_train)
+                link_logits = net_glob.decode(z, batch.edge_train)
+                link_labels = batch.label_train
+                loss = F.mse_loss(link_logits, link_labels)
+                loss.backward()
+                optimizer.step()
 
-                    z = net_glob.encode(batch.x, batch.edge_train)
-                    link_logits = net_glob.decode(z, batch.edge_train)
-                    link_labels = batch.label_train
-                    loss = F.mse_loss(link_logits, link_labels)
-                    loss.backward()
-                    optimizer.step()
-
-                if train_data is not None:
-                    test_score, _ , _, _, _= test(
-                        net_glob, train_data, args.device, val=True, metric=metric_fn
+            if train_data is not None:
+                test_score, _ , _, _, _= test(
+                    net_glob, train_data, args.device, val=True, metric=metric_fn
+                )
+                print(
+                    "Epoch = {}, Iter = {}/{}: Test score = {}".format(
+                        epoch, idx_batch + 1, len(train_data), test_score
                     )
-                    print(
-                        "Epoch = {}, Iter = {}/{}: Test score = {}".format(
-                            epoch, idx_batch + 1, len(train_data), test_score
-                        )
-                    )
-                    if test_score < max_test_score:
-                        max_test_score = test_score
-                        best_model_params = {
-                            k: v.cpu() for k, v in net_glob.state_dict().items()
-                        }
-                    print("Current best = {}".format(max_test_score))
+                )
+                if test_score < max_test_score:
+                    max_test_score = test_score
+                    best_model_params = {
+                        k: v.cpu() for k, v in net_glob.state_dict().items()
+                    }
+                print("Current best = {}".format(max_test_score))
 
-    
+
