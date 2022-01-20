@@ -57,7 +57,7 @@ def args_parser():
     parser.add_argument(
         "--data_dir",
         type=str,
-        default="/home/makerlab/rongyu/federated-learning/data",
+        default="./data",
         help="data directory",
     )
 
