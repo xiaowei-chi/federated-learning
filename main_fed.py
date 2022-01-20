@@ -16,7 +16,7 @@ from models.Update import LocalUpdate
 from models.Nets import MLP, CNNMnist, CNNCifar, GCNLinkPred, GATLinkPred, SAGELinkPred
 from models.Fed import FedAvg
 from models.test import test_img
-from data_preprocessing.data_loader import *
+from graph_data_preprocessing.data_loader import *
 from sklearn.metrics import mean_absolute_error, mean_squared_error, mean_absolute_percentage_error
 from training.fed_subgraph_lp_trainer import FedSubgraphLPTrainer
 
