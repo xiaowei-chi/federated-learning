@@ -60,18 +60,18 @@ def create_model( args, model_name, feature_dim):
     return model
 
 
-def get_optimizer(args, net_glob):
-    if args.client_optimizer == "sgd":
+def get_optimizer(client_optimizer, lr, wd, model):
+    if client_optimizer == "sgd":
         optimizer = torch.optim.SGD(
-            filter(lambda p: p.requires_grad, net_glob.parameters()),
-            lr=args.lr,
-            weight_decay=args.wd,
+            filter(lambda p: p.requires_grad, model.parameters()),
+            lr=lr,
+            weight_decay=wd,
         )
     else:
         optimizer = torch.optim.Adam(
-            filter(lambda p: p.requires_grad, net_glob.parameters()),
-            lr=args.lr,
-            weight_decay=args.wd,
+            filter(lambda p: p.requires_grad, model.parameters()),
+            lr=lr,
+            weight_decay=wd,
         )
 
     return optimizer
