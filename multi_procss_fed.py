@@ -25,9 +25,9 @@ def generate_loss(loss, losses):
     """
     loss generate functions
     """
-    loss_list = [l.item() for l in losses.values()]
-    loss += (sum(loss_list) / len(loss_list))
-    loss = loss / 2
+    # loss_list = [l.item() for l in losses.values()]
+    # loss += (sum(loss_list) / len(loss_list))
+    # loss = loss / 2
     return loss
 
 
@@ -57,11 +57,8 @@ def local_train(args, idx, local_model, train_data, losses, dead_time=5):
                 break
 
         # backward
-        # newloss = loss_generate(loss, losses)
-        loss_list = [l.item() for l in losses.values()]
-        loss += (sum(loss_list) / len(loss_list))
-        loss = loss / 2
-        losses[idx] = losses[idx]*0
+        loss = generate_loss(loss,losses)
+        losses[idx] = losses[idx] * 0
         loss.backward()
         optimizer.step()
     losses[idx] = loss
@@ -92,7 +89,8 @@ def train(args, train_data_local_dict, val_data_local_dict, net_glob):
                 train_data = train_data_local_dict[idx]
                 #TODO multiprocessing all local run
                 p = mp.Process(target=local_train,
-                               args=(args, idx, models[idx], train_data, losses))
+                               args=(args, idx, models[idx], train_data,
+                                     losses))
                 p.start()
                 processes.append(p)
             # run trains
@@ -110,7 +108,7 @@ def train(args, train_data_local_dict, val_data_local_dict, net_glob):
                 net_glob.load_state_dict(w_glob)
 
             epoch_loss.append(sum(losses.values()) / len(losses.values()))
-        round_loss.append(sum(epoch_loss) / len(epoch_loss))
+        round_loss.append((sum(epoch_loss) / len(epoch_loss)).item())
         #val for each round
         for idx in idxs_users:
             if val_data_local_dict is not None:
@@ -186,7 +184,8 @@ if __name__ == '__main__':
     print(net_glob)
 
     #train
-    model, loss_train = train(args,train_data_local_dict,val_data_local_dict,net_glob)
+    model, loss_train = train(args, train_data_local_dict, val_data_local_dict,
+                              net_glob)
 
     #test
     test_score, _, mae, rmse, mse = test(net_glob,
@@ -194,7 +193,8 @@ if __name__ == '__main__':
                                          args.device,
                                          val=True,
                                          metric=mean_absolute_error)
-    print("testing: mae = {}, rmse = {} , mse={}".format(np.mean(mae), np.mean(rmse), np.mean(mse)))
+    print("testing: mae = {}, rmse = {} , mse={}".format(
+        np.mean(mae), np.mean(rmse), np.mean(mse)))
 
     plt.figure()
     plt.plot(range(len(loss_train)), loss_train)
