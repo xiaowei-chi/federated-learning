@@ -73,17 +73,17 @@ def train(args, train_data_local_dict, val_data_local_dict, net_glob):
         round_loss = []
         m = max(int(args.frac * args.num_users), 1)
         idxs_users = np.random.choice(range(args.num_users), m, replace=False)
+        models = {}
+        losses = {}
+        # shared loss and weights
+        for idx in idxs_users:
+            models[idx] = copy.deepcopy(net_glob)
+            losses[idx] = torch.zeros(1).to(args.device)
+            losses[idx].share_memory_()
         for epoch in range(args.local_ep):
             # start multiprocess in each client
             epoch_loss = []
             processes = []
-            models = {}
-            losses = {}
-            # shared loss and weights
-            for idx in idxs_users:
-                models[idx] = copy.deepcopy(net_glob)
-                losses[idx] = torch.zeros(1).to(args.device)
-                losses[idx].share_memory_()
             # define multi process
             for idx in idxs_users:
                 train_data = train_data_local_dict[idx]
@@ -108,7 +108,7 @@ def train(args, train_data_local_dict, val_data_local_dict, net_glob):
                 net_glob.load_state_dict(w_glob)
 
             epoch_loss.append(sum(losses.values()) / len(losses.values()))
-        round_loss.append((sum(epoch_loss) / len(epoch_loss)).item())
+        round_loss.append((sum(epoch_loss) / len(epoch_loss)))
         #val for each round
         for idx in idxs_users:
             if val_data_local_dict is not None:
@@ -125,7 +125,7 @@ def train(args, train_data_local_dict, val_data_local_dict, net_glob):
                     .format(round, idx, test_score, mae, rmse, mse))
         # val for each round
 
-    return net_glob, round_loss
+    return net_glob, torch.tensor(round_loss).numpy()
 
 
 def test(model, test_data, device, val=True, metric=mean_absolute_error):
