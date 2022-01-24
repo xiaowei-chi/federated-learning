@@ -62,15 +62,15 @@ def local_train(args, idx, local_model, train_data, losses, dead_time=5):
         loss.backward()
         optimizer.step()
     losses[idx] = loss
-    print(f"{idx} loss is {losses[idx]}")
+    print(f"[training] {idx} loss is {losses[idx]}")
 
 
 def train(args, train_data_local_dict, val_data_local_dict, net_glob):
     torch.multiprocessing.set_start_method('spawn')
+    round_loss = []
     for round in range(args.epochs):
         if not args.all_clients:
             w_locals = []
-        round_loss = []
         m = max(int(args.frac * args.num_users), 1)
         idxs_users = np.random.choice(range(args.num_users), m, replace=False)
         models = {}
@@ -116,12 +116,12 @@ def train(args, train_data_local_dict, val_data_local_dict, net_glob):
                 if args.metric == "MAE":
                     metric_fn = mean_absolute_error
                 test_score, _, mae, rmse, mse = test(net_glob,
-                                                     train_data,
+                                                     val_data,
                                                      args.device,
                                                      val=True,
                                                      metric=metric_fn)
                 print(
-                    "Round = {}: idx = {} , Test score = {} , mae = {}, rmse = {} , mse={}"
+                    "[val] Round = {}: idx = {} , Test score = {} , mae = {}, rmse = {} , mse={}"
                     .format(round, idx, test_score, mae, rmse, mse))
         # val for each round
 
@@ -193,7 +193,7 @@ if __name__ == '__main__':
                                          args.device,
                                          val=True,
                                          metric=mean_absolute_error)
-    print("testing: mae = {}, rmse = {} , mse={}".format(
+    print("[testing]: mae = {}, rmse = {} , mse={}".format(
         np.mean(mae), np.mean(rmse), np.mean(mse)))
 
     plt.figure()
