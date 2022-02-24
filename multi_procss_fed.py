@@ -3,7 +3,7 @@ from tracemalloc import start
 from markupsafe import re
 import matplotlib
 import time
-
+import multiprocessing
 from main_fed_seperateloss import loss_generate
 
 matplotlib.use('Agg')
@@ -40,8 +40,8 @@ def waiting_all_embeddings(embeddings, dead_time):
     while True:
         items = []
         for item in embeddings.values():
-            items.append(item.item())
-        if 0 not in items:
+            items.append(len(item.item()))
+        if 1 not in items:
             # print("get all embeddings, continuing decoding...")
             break
         if time.time() - start_time >= 5: break
@@ -53,8 +53,9 @@ def merge_embeddings(embedding, embeddings_ids):
     """
     embeddings = {}
     for idx in embeddings_ids.keys():
-        embeddings[idx] = ctypes.cast(id(embeddings_ids[idx]),
-                                      ctypes.py_object).value
+        store_id = id(embedding)
+        embeddings[idx] = ctypes.cast(int(store_id), ctypes.py_object).value
+        print(len(embeddings[idx]))
     #TODO: for each embeddings: shape[x,64]. x is changed in different embeddings. How to merge?
 
     # math calculation
@@ -62,7 +63,7 @@ def merge_embeddings(embedding, embeddings_ids):
     return embedding
 
 
-def local_train(args, idx, model, train_data, losses, embeddings, dead_time=5):
+def local_train(args, idx, model, train_data, losses, embeddings, share_lock, dead_time=5):
     """
     dead_time: sec, if wait too long means there is no other process 
                 training, stop waiting and update by losses that haved.
@@ -80,7 +81,11 @@ def local_train(args, idx, model, train_data, losses, embeddings, dead_time=5):
 
         # copy to the share memory and wait for all loss
         start_time = time.time()
-        embeddings[idx] += id(z)
+
+        share_lock.acquire()
+        embeddings[idx] = z.detach()
+        share_lock.release()
+
         waiting_all_embeddings(embeddings, dead_time=dead_time)
 
         z = merge_embeddings(z, embeddings)
@@ -110,7 +115,8 @@ def train(args, train_data_local_dict, val_data_local_dict, net_glob):
         idxs_users = np.random.choice(range(args.num_users), m, replace=False)
         models = {}
         losses = {}
-        embeddings = {}
+        embeddings = multiprocessing.Manager().dict()
+        share_lock = multiprocessing.Manager().Lock()
         # shared loss and weights
         for idx in idxs_users:
             models[idx] = copy.deepcopy(net_glob)
@@ -118,7 +124,8 @@ def train(args, train_data_local_dict, val_data_local_dict, net_glob):
             embeddings[idx] = torch.zeros(1).to(args.device)
             losses[idx].share_memory_()
             models[idx].share_memory()
-            embeddings[idx].share_memory_()
+            # embeddings[idx].share_memory_()
+
         for epoch in range(args.local_ep):
             # start multiprocess in each client
             epoch_loss = []
@@ -129,7 +136,7 @@ def train(args, train_data_local_dict, val_data_local_dict, net_glob):
                 #multiprocessing all local run
                 p = mp.Process(target=local_train,
                                args=(args, idx, models[idx], train_data, losses,
-                                     embeddings))
+                                     embeddings,share_lock))
                 p.start()
                 processes.append(p)
             # run trains
