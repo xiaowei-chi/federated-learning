@@ -25,41 +25,34 @@ import torch.multiprocessing as mp
 import ctypes
 
 
-def generate_loss(loss, losses):
-    """
-    loss generate functions
-    """
-    # loss_list = [l.item() for l in losses.values()]
-    # loss += (sum(loss_list) / len(loss_list))
-    # loss = loss / 2
-    return loss
-
-
 def waiting_all_embeddings(embeddings, dead_time):
     start_time = time.time()
-    while True:
-        items = []
-        for item in embeddings.values():
-            items.append(len(item.item()))
-        if 1 not in items:
-            # print("get all embeddings, continuing decoding...")
-            break
+    while 1 not in [len(x) for x in embeddings.values()]:
         if time.time() - start_time >= 5: break
 
 
 def merge_embeddings(embedding, embeddings):
     """
     take care of memory storage...
+    embedding: tensor on cuda
+    embeddings:{id of client:value in cpu...}
     """
+    # print(embeddings.keys())
     #TODO: for each embeddings: shape[x,64]. x is changed in different embeddings. How to merge?
-    # can get embeddings directly from embeddings~
 
     # math calculation
 
     return embedding
 
 
-def local_train(args, idx, model, train_data, losses, embeddings, share_lock, dead_time=5):
+def local_train(args,
+                idx,
+                model,
+                train_data,
+                losses,
+                embeddings,
+                share_lock,
+                dead_time=5):
     """
     dead_time: sec, if wait too long means there is no other process 
                 training, stop waiting and update by losses that haved.
@@ -79,7 +72,7 @@ def local_train(args, idx, model, train_data, losses, embeddings, share_lock, de
         start_time = time.time()
 
         share_lock.acquire()
-        embeddings[idx] = z.detach()
+        embeddings[idx] = z.detach().cpu()
         share_lock.release()
 
         waiting_all_embeddings(embeddings, dead_time=dead_time)
@@ -91,7 +84,6 @@ def local_train(args, idx, model, train_data, losses, embeddings, share_lock, de
         loss = torch.nn.functional.mse_loss(link_logits, link_labels)
 
         # backward
-        loss = generate_loss(loss, losses)
         loss.backward()
         optimizer.step()
         print(f"{idx} loss:{loss}")
@@ -117,7 +109,7 @@ def train(args, train_data_local_dict, val_data_local_dict, net_glob):
         for idx in idxs_users:
             models[idx] = copy.deepcopy(net_glob)
             losses[idx] = torch.zeros(1).to(args.device)
-            embeddings[idx] = torch.zeros(1).to(args.device)
+            embeddings[idx] = torch.zeros(1)
             losses[idx].share_memory_()
             models[idx].share_memory()
             # embeddings[idx].share_memory_()
@@ -132,7 +124,7 @@ def train(args, train_data_local_dict, val_data_local_dict, net_glob):
                 #multiprocessing all local run
                 p = mp.Process(target=local_train,
                                args=(args, idx, models[idx], train_data, losses,
-                                     embeddings,share_lock))
+                                     embeddings, share_lock))
                 p.start()
                 processes.append(p)
             # run trains
