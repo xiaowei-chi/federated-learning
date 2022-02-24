@@ -47,16 +47,12 @@ def waiting_all_embeddings(embeddings, dead_time):
         if time.time() - start_time >= 5: break
 
 
-def merge_embeddings(embedding, embeddings_ids):
+def merge_embeddings(embedding, embeddings):
     """
     take care of memory storage...
     """
-    embeddings = {}
-    for idx in embeddings_ids.keys():
-        store_id = id(embedding)
-        embeddings[idx] = ctypes.cast(int(store_id), ctypes.py_object).value
-        print(len(embeddings[idx]))
     #TODO: for each embeddings: shape[x,64]. x is changed in different embeddings. How to merge?
+    # can get embeddings directly from embeddings~
 
     # math calculation
 
