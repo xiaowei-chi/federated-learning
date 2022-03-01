@@ -39,6 +39,15 @@ def merge_embeddings(embedding, embeddings):
     """
     # print(embeddings.keys())
     #TODO: for each embeddings: shape[x,64]. x is changed in different embeddings. How to merge?
+    target_shape = embedding.shape[0]
+    count = 1
+    for key in embeddings.keys():
+        if embeddings[key].shape[0] > target_shape:
+            embedding.data += embeddings[key].data[:target_shape,:].cuda()
+            count += 1
+
+    embedding.data /= count
+    return embedding
 
     # math calculation
 
