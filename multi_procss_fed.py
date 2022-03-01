@@ -51,7 +51,6 @@ def merge_embeddings(embedding, embeddings):
 
     # math calculation
 
-    return embedding
 
 
 def local_train(args,
