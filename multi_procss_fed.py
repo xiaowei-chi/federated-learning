@@ -91,6 +91,7 @@ def local_train(args,
         waiting_all_embeddings(embeddings, dead_time=dead_time)
 
         z = merge_embeddings(z, embeddings)
+        embeddings[idx] = torch.zeros(1)
 
         link_logits = local_model.decode(z, batch.edge_train)
         link_labels = batch.label_train
