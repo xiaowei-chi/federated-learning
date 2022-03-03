@@ -45,6 +45,11 @@ def merge_embeddings(embedding, embeddings):
         if embeddings[key].shape[0] > target_shape:
             embedding.data += embeddings[key].data[:target_shape,:].cuda()
             count += 1
+        elif embeddings[key].shape[0] < target_shape:
+            adder = torch.zeros(embedding.shape)
+            adder[:embeddings[key].shape[0],:]+=embeddings[key].data
+            embedding.data += adder.data.cuda()
+            count += 1
 
     embedding.data /= count
     return embedding
